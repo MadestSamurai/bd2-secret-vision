@@ -1,0 +1,13 @@
+* text=auto
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+
+# Embedded component identity hashes these exact bytes; preserve them on every OS.
+hook/*.cs -text whitespace=cr-at-eol
+compatibility/contract.json -text whitespace=cr-at-eol
