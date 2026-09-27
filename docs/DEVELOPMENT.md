@@ -54,3 +54,9 @@ Every decision now logs its board input. Full-size 256×256 scenarios test rim a
 ## Confirmed result display (0.1.6)
 
 After saving a confirmed success, the host holds the result for 8 seconds before the next stage or final exit. The run cancellation token remains active; stopping preserves the recorded clear and sends no subsequent start or exit. Failure retry timing is unchanged. Lifecycle tests inject a controlled delay to verify timing, evidence order, both transitions and immediate cancellation.
+
+## GitHub Actions releases
+
+Push an annotated `vX.Y.Z` tag matching `Directory.Build.props`. The **Publish release** workflow checks out that tag, builds and validates both editions on GitHub, then uploads six release assets. SHA256 digests and sizes are checked against GitHub before the draft becomes public. Local EXE uploads are not part of the release process.
+
+For an existing tag, dispatch **Publish release** from the default branch with its tag name. This also supports tags created before the release workflow existed. Only draft assets may be replaced; an already published release requires a new version. Main-branch and pull-request checks remain separate.

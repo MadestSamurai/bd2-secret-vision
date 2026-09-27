@@ -19,7 +19,7 @@ Repository: `MadestSamurai/bd2-secret-vision` · Version: `0.1.6` · License: MI
 - Build and check both editions with `./package.ps1 -Locked` from a clean checkout.
 - Check the ZIP documents and EXE against the reviewed files; generate SHA256 checksums.
 - Commit the independent source and create an annotated version tag.
-- Publish a standard GitHub Release with bilingual notes, the Portable/Lite comparison table, both EXEs, both ZIPs and checksums.
+- Push the version tag to trigger **Publish release**, or dispatch it for an existing tag. Actions builds both editions, uploads both EXEs, both ZIPs, checksums and metadata, verifies remote digests, then publishes the standard bilingual Release. Do not upload local binaries.
 - Verify public access, default branch, tag target, downloadable asset hashes and automated build results.
 
 PublicRuntime4 is unchanged from local 0.1.4 / 0.1.5 builds; an existing connection can be reused without restarting the game.
