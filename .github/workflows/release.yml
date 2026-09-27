@@ -64,13 +64,11 @@ jobs:
             $hash,$name=$line -split '  ',2
             if ((Get-FileHash -LiteralPath (Join-Path $folder $name) -Algorithm SHA256).Hash -ne $hash) { throw "Checksum mismatch: $name" }
           }
-          $all=@(gh api "repos/$env:GH_REPO/releases?per_page=100" --paginate --slurp | ConvertFrom-Json | ForEach-Object { $_ })
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect existing releases' }
-          $existing=@($all | Where-Object tag_name -eq $tag)
-          if ($existing.Count -gt 1) { throw 'Ambiguous release tag' }
+          $existingJson=gh release view $tag --json apiUrl,isDraft 2>$null
+          $existing=if ($LASTEXITCODE -eq 0) { $existingJson | ConvertFrom-Json } else { $null }
           $paths=@($files | ForEach-Object FullName)
-          if ($existing.Count -eq 1) {
-            if (!$existing[0].draft) { throw 'Published assets are immutable; use a new version' }
+          if ($null -ne $existing) {
+            if (!$existing.isDraft) { throw 'Published assets are immutable; use a new version' }
             gh release upload $tag @paths --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed' }
             gh release edit $tag --title "BD2 Secret Vision $tag" --notes-file docs/RELEASE_NOTES.md
@@ -79,9 +77,10 @@ jobs:
             gh release create $tag @paths --verify-tag --draft --title "BD2 Secret Vision $tag" --notes-file docs/RELEASE_NOTES.md
             if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
           }
-          $all=@(gh api "repos/$env:GH_REPO/releases?per_page=100" --paginate --slurp | ConvertFrom-Json | ForEach-Object { $_ })
+          $view=gh release view $tag --json apiUrl | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot locate uploaded release' }
+          $release=gh api $view.apiUrl | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Cannot verify uploaded release' }
-          $release=$all | Where-Object tag_name -eq $tag
           if (@($release.assets).Count -ne $files.Count) { throw 'Uploaded asset count mismatch' }
           foreach ($file in $files) {
             $asset=@($release.assets | Where-Object name -eq $file.Name)
