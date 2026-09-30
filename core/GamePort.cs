@@ -10,7 +10,7 @@ public sealed class GamePort:IGamePort {
  public async Task<string> Send(string kind,object? fields,CancellationToken token){
  var s=await Read(token);var q=fields==null?new JsonObject():System.Text.Json.JsonSerializer.SerializeToNode(fields)!.AsObject();string id=Guid.NewGuid().ToString("N");
  q["Id"]=id;q["Kind"]=kind;q["Session"]=session;q["Owner"]=owner;q["ExpiresUtc"]=DateTimeOffset.UtcNow.AddSeconds(8).ToString("O");
- var path=Path.Combine(Root,"command.json");if(File.Exists(path))throw new InvalidOperationException("pending-command");token.ThrowIfCancellationRequested();Files.Write(path,q);
+ var path=Path.Combine(Root,"command.json");token.ThrowIfCancellationRequested();if(!BD2.LocalIpc.DesktopFiles.Write(path,System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(q,Files.Options),true))throw new IOException("component-not-connected");
  var until=DateTimeOffset.UtcNow.AddSeconds(10);
  while(DateTimeOffset.UtcNow<until){await Read(token);var r=Files.Read<JsonNode>(Path.Combine(Root,"receipt-"+id+".json"));if(r!=null){Log("receipts",r);if(r.S("Status")!="dispatched"&&!(kind=="route"&&r.S("Status")=="deferred"))throw new InvalidOperationException("command-rejected: "+r.S("Error"));return id;}await Task.Delay(100,token);}
  throw new InvalidOperationException("command-result-unknown");

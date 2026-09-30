@@ -14,6 +14,7 @@ public sealed class LocalFileException : IOException
 
 public static class Files
 {
+    public const string LiveEntries="state.json|error.json|control.json|command.json|runtime.json|stop|receipt-*";
     public static string Root => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BD2SecretVisionAssistant");
     public static readonly JsonSerializerOptions Options = new(){WriteIndented=true, PropertyNameCaseInsensitive=true};
     private static readonly object noteLock = new();
@@ -22,6 +23,7 @@ public static class Files
     public static T? Read<T>(string path)
     {
         try {
+            if(BD2.LocalIpc.DesktopFiles.Read(path,out var live))return live==null?default:JsonSerializer.Deserialize<T>(live,Options);
             using var file=new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite|FileShare.Delete);
             return JsonSerializer.Deserialize<T>(file, Options);
         } catch(Exception error) when(IsFileError(error) || error is JsonException) { return default; }
@@ -31,6 +33,7 @@ public static class Files
     // Replace preserves atomic publication; never delete the old file first.
     public static void Write<T>(string path, T value)
     {
+        if(BD2.LocalIpc.DesktopFiles.Write(path,JsonSerializer.SerializeToUtf8Bytes(value,Options)))return;
         path=Path.GetFullPath(path);
         var temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
         string operation="create temporary file";

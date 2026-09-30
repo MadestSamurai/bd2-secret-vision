@@ -12,9 +12,10 @@ public static class HookCompiler {
  foreach(var t in resolved.Types)if(MetadataIndex.Obfuscated(t.Key))Add(t.Key,t.Value.FullName);
  foreach(var m in resolved.Members){var old=m.Key.Split('|')[1];if(MetadataIndex.Obfuscated(old))Add(old,m.Value.Name);}
  var sources=typeof(HookCompiler).Assembly.GetManifestResourceNames().Where(n=>n.StartsWith("Hook.")).Select(n=>CSharpSyntaxTree.ParseText(Regex.Replace(Encoding.UTF8.GetString(Resource(n)),@"[\u0370-\u1fff]+",m=>names.GetValueOrDefault(m.Value,m.Value)),path:n)).ToList();
+ sources.Add(CSharpSyntaxTree.ParseText("namespace BD2.LocalIpc { public static class Build { public const string Fingerprint = " + JsonSerializer.Serialize(Fingerprint) + "; } }"));
  var refs=new List<MetadataReference>();foreach(var file in Directory.EnumerateFiles(managed,"*.dll"))try{refs.Add(MetadataReference.CreateFromFile(file));}catch(BadImageFormatException){}
  refs.Add(MetadataReference.CreateFromImage(Resource("SecretVision.Harmony.dll")));
- var compilation=CSharpCompilation.Create("BD2SecretVision.PublicRuntime4",sources,refs,new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,optimizationLevel:OptimizationLevel.Release,platform:Platform.X64,deterministic:true));
+ var compilation=CSharpCompilation.Create("BD2SecretVision.PublicRuntime4.Hot."+Fingerprint.Substring(0,12),sources,refs,new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,optimizationLevel:OptimizationLevel.Release,platform:Platform.X64,deterministic:true));
  using var output=new MemoryStream();var emit=compilation.Emit(output,manifestResources:[new ResourceDescription("SecretVision.Harmony.dll",()=>new MemoryStream(Resource("SecretVision.Harmony.dll")),true)]);
  if(!emit.Success)throw new InvalidOperationException(string.Join("\n",emit.Diagnostics.Where(d=>d.Severity==DiagnosticSeverity.Error).Take(30)));
  return new(output.ToArray(),resolved.Report);

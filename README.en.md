@@ -12,7 +12,7 @@ An automated territory-claiming assistant for the SECRET VISION minigame in the 
 
 ## Download
 
-Version **0.1.6**: a single EXE with built-in Simplified Chinese and English.
+Source version **0.1.7**: a single EXE with built-in Simplified Chinese and English.
 
 | Edition | Runtime | Recommended for |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ The planner uses normal input, speed, items and settlement. It does not change d
 
 Expand Diagnostics and data location to read the original error and copy the data path. About & source contains selectable repository URLs. The app does not launch an external file browser or web browser.
 
-When upgrading from local 0.1.4 / 0.1.5 builds, stop and close the old assistant, then open the new executable; no game restart is required. Older components still require one normal restart. File contention does not require elevation.
+For upgrades, follow the connection and tool switching section below. File contention does not require elevation.
 
 Local data uses `%LOCALAPPDATA%\BD2SecretVisionAssistant\`. Settings, connection diagnostics and attempts are stored separately. Restarting the program never automatically replays an old route.
 
@@ -83,3 +83,7 @@ Requires Windows x64, PowerShell and .NET 8 or newer SDK. Core checks neither re
 ## License
 
 Project code uses the [MIT License](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). This project is not affiliated with the game's developer or publisher.
+
+## Connection and tool switching
+
+When upgrading from an older release for the first time, close the old tools and restart the game once. These updated tools can then update and switch within the same game process: pending game operations finish before control changes. Settings and records are retained. Live communication uses local named pipes. Modules used by the daily workflow are coordinated separately by its scheduler.

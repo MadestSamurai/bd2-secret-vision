@@ -61,5 +61,6 @@
   "failure": "Operation could not complete. Expand diagnostics for details.",
   "stopping": "Stopping and releasing input…",
   "startup-error": "Startup failed",
-  "file-access": "A local file could not be accessed. See diagnostics for the path and cause."
+  "file-access": "A local file could not be accessed. See diagnostics for the path and cause.",
+  "等待小游戏结算回读": "Waiting for the minigame result confirmation"
 }

@@ -89,27 +89,27 @@ internal static class LifecycleTests
             Check(File.ReadAllText(Path.Combine(root,"diagnostics.jsonl")).Contains("publish file"),"full file failure recorded");
         }
         {
-            // The actual automation must notice a failed renewal while its planner waits.
+            // A locked legacy control file must not interrupt the live pipe heartbeat.
             string root=Path.Combine(AppContext.BaseDirectory,"test-data",Guid.NewGuid().ToString("N"));
             var game=new FakeGame(root,["pass"]);var connection=new Connection(root);
             var runner=new Automation(connection,()=>game.Process,(_,_,_)=>game,async(_,ct)=>{
-                using var locked=new FileStream(Path.Combine(root,"control.json"),FileMode.Open,FileAccess.Read,FileShare.Read);
-                await Task.Delay(10000,ct);
+                using var locked=new FileStream(Path.Combine(root,"control.json"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+                await Task.Delay(1200,ct);await game.Play(ct);
             });
             await runner.Run(new(),CancellationToken.None);
-            Check(runner.Progress.Status=="blocked"&&runner.Progress.Detail.Contains("control.json"),"automation surfaces heartbeat failure instead of timing out later");
-            Check(game.Starts==1&&!Files.Read<JsonNode>(Path.Combine(root,"control.json")).B("Enabled"),"failed control does not start another round");
+            Check(runner.Progress.Status=="completed","locked legacy file cannot break pipe heartbeat");
+            Check(game.Starts==1&&!Files.Read<JsonNode>(Path.Combine(root,"control.json")).B("Enabled"),"completed round revokes pipe lease despite old file lock");
         }
         {
             // Revocation failure is secondary; retain the actual gameplay error.
             string root=Path.Combine(AppContext.BaseDirectory,"test-data",Guid.NewGuid().ToString("N"));
             var game=new FakeGame(root,["pass"]);FileStream? held=null;
             var runner=new Automation(new Connection(root),()=>game.Process,(_,_,_)=>game,(_,_)=>{
-                held=new FileStream(Path.Combine(root,"control.json"),FileMode.Open,FileAccess.Read,FileShare.Read);
+                held=new FileStream(Path.Combine(root,"control.json"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
                 throw new InvalidOperationException("original planner failure");
             });
             try{await runner.Run(new(),CancellationToken.None);}finally{held?.Dispose();}
-            Check(runner.Progress.Detail.Contains("original planner failure")&&runner.Progress.Warning.Contains("control.json"),"shutdown error cannot overwrite first failure");
+            Check(runner.Progress.Detail.Contains("original planner failure")&&!runner.Progress.Warning.Contains("control.json"),"legacy file lock cannot prevent revocation or overwrite first failure");
         }
         foreach(var reason in new[]{"game-Paused","resume-timeout"}){
             string root=Path.Combine(AppContext.BaseDirectory,"test-data",Guid.NewGuid().ToString("N"));
@@ -132,8 +132,8 @@ internal static class LifecycleTests
         public GameProcess Process=new(42,1234,"synthetic.exe");public string Owner="";public int Starts,Exits;
         public List<string> Rounds=new();private readonly string root;private readonly Queue<string> outcomes;private string result="";
         private readonly Snapshot state=new(){Protocol=1,Pid=42,ProcessStart=1234,Session="fake",UIs=[new(){Type="HopscotchMainUI"}]};
-        public FakeGame(string root,string[] outcomes){this.root=root;this.outcomes=new(outcomes);WriteState();}
-        private void WriteState(){state.AtUtc=DateTimeOffset.UtcNow;Files.Write(Path.Combine(root,"state.json"),state);}
+        public FakeGame(string root,string[] outcomes){this.root=root;this.outcomes=new(outcomes);TestTransport.Start(root,Files.LiveEntries);WriteState();}
+        private void WriteState(){state.AtUtc=DateTimeOffset.UtcNow;TestTransport.Publish(Path.Combine(root,"state.json"),state);}
         public Task<Snapshot> Read(CancellationToken token){token.ThrowIfCancellationRequested();WriteState();return Task.FromResult(state);}
         public Task<string> Send(string kind,object? fields,CancellationToken token){
             token.ThrowIfCancellationRequested();string id=Guid.NewGuid().ToString("N");

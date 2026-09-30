@@ -10,16 +10,35 @@ using HarmonyLib;
 using BD2SecretVision.Rules;
 namespace BD2SecretVision.Runtime {
 public static class Loader {
- static bool started;
- public static void Load(){if(started)return;started=true;AppDomain.CurrentDomain.AssemblyResolve+=Resolve;Canvas.willRenderCanvases+=Boot;}
+ static object engine;static bool resolver;static BD2.LocalIpc.Handoff handoff;static BD2.LocalIpc.MainThread frame;
+ static readonly string Root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BD2SecretVisionAssistant");
+ public static void Load(){lock(typeof(Loader)){
+  if(handoff==null)handoff=new BD2.LocalIpc.Handoff(typeof(Loader).Assembly.FullName,"secret-vision","secret-vision",false,Start,Pause,Busy,Stop,Status);
+  if(!handoff.IsActive&&!handoff.Pending)BD2.LocalIpc.RuntimeFiles.Start(Root,BD2.LocalIpc.Build.Fingerprint,"state.json|error.json|control.json|command.json|runtime.json|stop|receipt-*");
+  handoff.Request(DateTime.UtcNow);
+  if(frame==null)frame=new BD2.LocalIpc.MainThread(()=>{BD2.LocalIpc.LegacyPilots.Discover();handoff.Tick(DateTime.UtcNow);return handoff.Pending;},handoff.Fail);frame.Schedule();
+ }}
+ static void Start(){BD2.LocalIpc.RuntimeFiles.Start(Root,BD2.LocalIpc.Build.Fingerprint,"state.json|error.json|control.json|command.json|runtime.json|stop|receipt-*");if(!resolver){AppDomain.CurrentDomain.AssemblyResolve+=Resolve;resolver=true;}engine=typeof(Loader).Assembly.GetType("BD2SecretVision.Runtime.Engine",true).GetMethod("Create",BindingFlags.Static|BindingFlags.Public).Invoke(null,null);}
+ static object Invoke(string name){return engine.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.Public).Invoke(engine,null);}
+ static void Pause(){BD2.LocalIpc.RuntimeFiles.Revoke();if(engine!=null)Invoke("PrepareHandoff");}
+ static string Busy(){return engine==null?"":(string)Invoke("HandoffBusy");}
+ static void Stop(){if(engine!=null)Invoke("StopHook");engine=null;if(resolver){AppDomain.CurrentDomain.AssemblyResolve-=Resolve;resolver=false;}}
+ public static void Unload(){BD2.LocalIpc.MainThread.Drain(()=>{if(handoff!=null)handoff.Unload();},Status);}
+ public class StatusFrame { public string AtUtc {get;set;} public string State {get;set;} public string Error {get;set;} }
+ static void Status(string state,string error){if(state=="active"&&handoff!=null&&handoff.IsActive)BD2.LocalIpc.RuntimeFiles.Activate();var value=new StatusFrame{AtUtc=DateTime.UtcNow.ToString("O"),State=state,Error=error};if(state=="error")WriteStatus("error.json",value);WriteStatus("runtime.json",value);}
+ static void WriteStatus(string name,object value){using(var buffer=new MemoryStream()){new System.Runtime.Serialization.Json.DataContractJsonSerializer(value.GetType()).WriteObject(buffer,value);BD2.LocalIpc.RuntimeFiles.Write(Path.Combine(Root,name),buffer.ToArray());}}
  static Assembly Resolve(object s,ResolveEventArgs e){if(new AssemblyName(e.Name).Name!="0Harmony")return null;using(var a=typeof(Loader).Assembly.GetManifestResourceStream("SecretVision.Harmony.dll"))using(var b=new MemoryStream()){a.CopyTo(b);return Assembly.Load(b.ToArray());}}
- static void Boot(){Canvas.willRenderCanvases-=Boot;try{if(AppDomain.CurrentDomain.GetAssemblies().Any(a=>a.GetName().Name.StartsWith("BD2SecretVisionRuntime")))throw new InvalidOperationException("Another Secret Vision component is loaded; restart the game before connecting.");var go=new GameObject("BD2 Secret Vision");UnityEngine.Object.DontDestroyOnLoad(go);go.AddComponent<Engine>();}catch(Exception e){Engine.Write("error.json",new{AtUtc=DateTime.UtcNow.ToString("O"),Error=e.ToString()});}}
 }
 [DefaultExecutionOrder(-20000)]
 public sealed class Engine:MonoBehaviour {
  internal static readonly string Root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BD2SecretVisionAssistant");
  const BindingFlags All=BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static;
- static Engine current;
+ static Engine current;bool retired;bool handingOff;bool settlementPending;
+ public static object Create(){var go=new GameObject("BD2 Secret Vision");UnityEngine.Object.DontDestroyOnLoad(go);return go.AddComponent<Engine>();}
+ public void PrepareHandoff(){if(handingOff)return;handingOff=true;controlled=false;Stop("component-handoff",running&&Playing);}
+ public string HandoffBusy(){return settlementPending?"等待小游戏结算回读":"";}
+ public void StopHook(){PrepareHandoff();retired=true;enabled=false;new Harmony("bd2.secretvision.public4").UnpatchAll("bd2.secretvision.public4");if(current==this)current=null;UnityEngine.Object.Destroy(gameObject);}
+
  readonly Dictionary<string,FieldInfo> fields=new Dictionary<string,FieldInfo>();
  readonly Dictionary<int,Component> uiTargets=new Dictionary<int,Component>();
  HopscotchManager manager;HopscotchGridMap grid;HopscotchPlayerController player;HopscotchEnemyController enemy;
@@ -30,7 +49,7 @@ public sealed class Engine:MonoBehaviour {
  DateTime nextRead,nextWrite,deadline,lastProgress,nextGate,nextTransit,gateSince;string gateReason="";List<string> cachedRows;int cachedGridId;float cachedPercent=-1;Vector2Int lastVertex;float startedTime;string reason="observing";string session=Guid.NewGuid().ToString("N"); string owner="",round=""; int stage; bool controlled; int lastManager; readonly long processStart=System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
  public class Node {public int X;public int Y;public bool Claim;public float WaitBeforeS;}
  [System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]static extern bool MoveFileEx(string existing,string replacement,int flags);
- public static void Write(string name,object value){Directory.CreateDirectory(Root);var path=Path.Combine(Root,name);var temp=path+".tmp";File.WriteAllText(temp,JsonConvert.SerializeObject(value));if(!MoveFileEx(temp,path,1|8))throw new IOException("Snapshot publication failed: "+System.Runtime.InteropServices.Marshal.GetLastWin32Error());}
+ public static void Write(string name,object value){var path=Path.Combine(Root,name);if(BD2.LocalIpc.RuntimeFiles.Write(path,System.Text.Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(value))))return;Directory.CreateDirectory(Root);var temp=path+".tmp";File.WriteAllText(temp,JsonConvert.SerializeObject(value));if(!MoveFileEx(temp,path,1|8))throw new IOException("Snapshot publication failed: "+System.Runtime.InteropServices.Marshal.GetLastWin32Error());}
  void Event(string kind,object data){try{var ep=Path.Combine(Root,"events.jsonl");if(File.Exists(ep)&&new FileInfo(ep).Length>4000000){var old=ep+".previous";if(File.Exists(old))File.Delete(old);File.Move(ep,old);}File.AppendAllText(Path.Combine(Root,"events.jsonl"),JsonConvert.SerializeObject(new{AtUtc=DateTime.UtcNow.ToString("O"),Session=session,Frame=Time.frameCount,Kind=kind,Data=data})+"\n");}catch(IOException){}}
  object Field(object o,string name){var k=o.GetType().FullName+name;FieldInfo f;if(!fields.TryGetValue(k,out f)){for(var t=o.GetType();t!=null&&f==null;t=t.BaseType)f=t.GetField(name,All|BindingFlags.DeclaredOnly);if(f==null)throw new MissingFieldException(o.GetType().Name,name);fields[k]=f;}return f.GetValue(o);}
  T Read<T>(object o,string name){return (T)Field(o,name);}
@@ -43,15 +62,15 @@ public sealed class Engine:MonoBehaviour {
  h.Patch(typeof(HopscotchManager).GetMethod("RequestGameEnd",All),prefix:new HarmonyMethod(typeof(Engine),nameof(Ending)));
  Event("connected",new{Pid=System.Diagnostics.Process.GetCurrentProcess().Id,StageObservers=records.Select(x=>x.Name).ToArray()});}
  public static void Failing(object[] __args){try{if(current!=null)current.Event("trail-failed",new{Args=__args,Stack=Environment.StackTrace,Cursor=current.cursor,Player=XY(current.Position),PlayerRadius=current.Radius(current.player),Projectiles=current.Projectiles()});}catch{}}
- public static void Ending(object[] __args){try{if(current!=null){var data=new{AtUtc=DateTime.UtcNow.ToString("O"),Session=current.session,Round=current.round,Stage=current.stage,Percent=(int)__args[0],GridPercent=current.grid.GetClaimedPercentExcludeWall()*100,Remaining=current.Field(current.manager,"ὩὪὭὬὢὭὫὢὮὢὮ"),Continued=current.Field(current.manager,"ὩὡὭὤὡὭὪὣὯὩὣ")};Write("end.json",data);current.Event("game-end",data);}}catch{}}
- public static void StageRecord(object[] __args){try{Write("server-stage.json",new{AtUtc=DateTime.UtcNow.ToString("O"),Session=current==null?"":current.session,Round=current==null?"":current.round,Data=__args[0].ToString()});}catch{}}
+ public static void Ending(object[] __args){try{if(current!=null){current.settlementPending=true;var data=new{AtUtc=DateTime.UtcNow.ToString("O"),Session=current.session,Round=current.round,Stage=current.stage,Percent=(int)__args[0],GridPercent=current.grid.GetClaimedPercentExcludeWall()*100,Remaining=current.Field(current.manager,"ὩὪὭὬὢὭὫὢὮὢὮ"),Continued=current.Field(current.manager,"ὩὡὭὤὡὭὪὣὯὩὣ")};Write("end.json",data);current.Event("game-end",data);}}catch{}}
+ public static void StageRecord(object[] __args){try{if(current!=null)current.settlementPending=false;Write("server-stage.json",new{AtUtc=DateTime.UtcNow.ToString("O"),Session=current==null?"":current.session,Round=current==null?"":current.round,Data=__args[0].ToString()});}catch{}}
  public static void Arrived(HopscotchPlayerController __instance){if(current!=null&&current.running&&current.player==__instance){try{current.Drive(true);}catch(Exception e){current.Stop("arrival-error",true);Write("error.json",new{Error=e.ToString()});}}}
  bool Playing {get{return manager!=null&&!manager.ὩὩὮὣὤὦὮὩὢὣὠ;}}
  Vector2Int Vertex {get{return player.ὭὧὢὢὡὠὨὫὧὨὬ;}}
  Vector2 Position {get{return player.ὡὢὥὧὮὪὪὪὪὧὠ;}}
  void Acquire(){manager=HopscotchManager.ὪὫὢὨὯὭὦὪὦὨὣ;if(manager==null){grid=null;player=null;enemy=null;return;}if(lastManager!=manager.GetInstanceID()){lastManager=manager.GetInstanceID();bodies.Clear();lastControl=0;wallOrigins.Clear();wallGridId=0;lastCarve="";}grid=manager.ὦὢὬὢὬὣὭὪὠὦὭ;player=manager.ὠὣὡὬὯὠὣὠὭὯὪ;enemy=manager.ὦὠὪὩὥὡὯὩὣὨὩ;}
- void Update(){try{
- if(DateTime.UtcNow>=nextRead){nextRead=DateTime.UtcNow.AddMilliseconds(100);Acquire();ReadControl();ReadCommand();}
+ void Update(){if(retired)return;try{
+ if(DateTime.UtcNow>=nextRead){nextRead=DateTime.UtcNow.AddMilliseconds(100);Acquire();if(!handingOff){ReadControl();ReadCommand();}}
  if(Playing&&Time.time>=nextBodies){nextBodies=Time.time+.1f;TrackBodies();var control=ControlRemaining;if((control>0)!=(lastControl>0)||control>lastControl+.2f)Event("control-state",new{Remaining=control,TimeStop=TimeStopRemaining,Power=PowerRemaining,State=Field(enemy,"ὭὥὨὤὠὥὡὪὩὯὨ").ToString()});lastControl=control;var carve=CarveState+":"+CarveReadyInterrupted;if(carve!=lastCarve){lastCarve=carve;Event("attack-opportunity",new{EnemyState=EnemyState,CarveState=CarveState,CarveReadyInterrupted=CarveReadyInterrupted,CarveBlockedRemaining=CarveBlockedRemaining,ControlRemaining=control});}}
  if(running)Drive(false);
  else if(controlled&&Playing&&player!=null&&!Read<bool>(player,"ὤὫὥὩὣὦὮὫὡὪὮ")&&!Read<bool>(player,"ὣὭὥὠὨὬὧὣὮὢὦ")&&DateTime.UtcNow>=nextTransit&&Vector2.Distance(Position,grid.VertexToUIPos(Vertex))<.02f){
@@ -62,7 +81,7 @@ public sealed class Engine:MonoBehaviour {
  void Stop(string why,bool pause){running=false;reason=why;if(player!=null){player.OnTouchDirection(Vector2.zero,true);player.OnTouchPadOK(false);}if(pause&&Playing)manager.RequestPaused();Event("stopped",new{Reason=why,Cursor=cursor,Count=route.Count});}
  void Drive(bool arrival){
  // Ownership is checked before gameplay state, including manual pauses.
- if(!controlled||DateTime.UtcNow>deadline||File.Exists(Path.Combine(Root,"stop"))){Stop("lease/stop",true);return;}
+ if(!controlled||DateTime.UtcNow>deadline||BD2.LocalIpc.RuntimeFiles.Read(Path.Combine(Root,"stop"))!=null){Stop("lease/stop",true);return;}
  if(manager==null||manager.GetInstanceID()!=boardId){Stop("board changed",false);return;}
  if(!Playing){Stop("game-"+Field(manager,"ὢὠὤὪὧὨὫὦὯὨὯ").ToString(),false);return;}
  var v=Vertex;
@@ -244,11 +263,10 @@ public sealed class Engine:MonoBehaviour {
  gateReason=(carveWindow>0?"safe-carve:":control>0?"safe-control:":"safe:")+need.ToString("F2")+"s/window:"+available.ToString("F2")+"/control:"+control.ToString("F2");return true;
  }
  static float[] XY(Vector2 v){return new[]{v.x,v.y};}
- static JObject ReadJson(string path){using(var f=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))using(var r=new StreamReader(f))return JObject.Parse(r.ReadToEnd());}
+ static JObject ReadJson(string path){using(var f=new MemoryStream(BD2.LocalIpc.RuntimeFiles.Read(path)??new byte[0]))using(var r=new StreamReader(f))return JObject.Parse(r.ReadToEnd());}
  void ReadControl(){bool valid=false;try{var c=ReadJson(Path.Combine(Root,"control.json"));valid=(bool?)c["Enabled"]==true&&(string)c["Session"]==session&&(int?)c["Pid"]==System.Diagnostics.Process.GetCurrentProcess().Id&&(long?)c["ProcessStart"]==processStart&&DateTime.Parse((string)c["ExpiresUtc"]).ToUniversalTime()>DateTime.UtcNow;if(valid){owner=(string)c["Owner"];deadline=DateTime.Parse((string)c["ExpiresUtc"]).ToUniversalTime();}}catch(IOException){if(DateTime.UtcNow<deadline&&controlled)return;}catch{}if(controlled&&!valid){Stop("lease/stop",true);}controlled=valid;}
- void ReadCommand(){var path=Path.Combine(Root,"command.json");if(!File.Exists(path))return;JObject q;
- try{q=ReadJson(path);}catch(IOException){return;}
- var id=(string)q["Id"];File.Move(path,Path.Combine(Root,"command-"+id+".json"));
+ void ReadCommand(){var bytes=BD2.LocalIpc.RuntimeFiles.Take(Path.Combine(Root,"command.json"));if(bytes==null)return;var q=JObject.Parse(System.Text.Encoding.UTF8.GetString(bytes));
+ var id=(string)q["Id"];
  try{
  if((string)q["Session"]!=session||DateTime.Parse((string)q["ExpiresUtc"]).ToUniversalTime()<DateTime.UtcNow)throw new Exception("stale command");
  var kind=(string)q["Kind"];if(kind!="stop"&&(!controlled||(string)q["Owner"]!=owner))throw new Exception("inactive control lease");
