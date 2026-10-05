@@ -2,6 +2,16 @@ namespace BD2SecretVision;
 public sealed class UserPreferences
 {
     public string Language { get; set; } = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "zh" ? "zh-CN" : "en-US";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayLanguage => AppDomain.CurrentDomain.GetData("BD2Daily.HostedLanguage") is string hosted && hosted is "zh-CN" or "zh-TW" or "en-US" ? hosted : Language;
+    public void SelectLanguage(string root, string language)
+    {
+
+        if(AppDomain.CurrentDomain.GetData("BD2Daily.HostedLanguage") is string hosted && hosted is "zh-CN" or "zh-TW" or "en-US")
+        {return;}
+        if(language is not ("zh-CN" or "en-US"))throw new ArgumentOutOfRangeException(nameof(language));
+        Language=language;Save(root);
+    }
     public Settings Settings { get; set; } = new();
     public static UserPreferences Load(string root)
     {

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag to build and publish (for example v0.1.6)'
+        description: 'Existing version tag to build and publish (for example v0.1.8)'
         required: true
         type: string
 
@@ -48,7 +48,7 @@ jobs:
         run: ./package.ps1 -Locked
       - uses: actions/upload-artifact@v4
         with:
-          name: secret-vision-${{ env.RELEASE_TAG }}
+          name: BD2SecretVision-win-x64
           path: dist/${{ env.RELEASE_TAG }}/
           if-no-files-found: error
           retention-days: 14
@@ -71,10 +71,10 @@ jobs:
             if (!$existing.isDraft) { throw 'Published assets are immutable; use a new version' }
             gh release upload $tag @paths --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed' }
-            gh release edit $tag --title "BD2 Secret Vision $tag" --notes-file docs/RELEASE_NOTES.md
+            gh release edit $tag --title "BD2 Secret Vision $tag" --notes-file ("docs/release-"+$tag.Substring(1)+".md")
             if ($LASTEXITCODE -ne 0) { throw 'Release notes update failed' }
           } else {
-            gh release create $tag @paths --verify-tag --draft --title "BD2 Secret Vision $tag" --notes-file docs/RELEASE_NOTES.md
+            gh release create $tag @paths --verify-tag --draft --title "BD2 Secret Vision $tag" --notes-file ("docs/release-"+$tag.Substring(1)+".md")
             if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed' }
           }
           $view=gh release view $tag --json apiUrl | ConvertFrom-Json

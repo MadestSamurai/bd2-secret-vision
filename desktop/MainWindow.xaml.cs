@@ -10,12 +10,14 @@ namespace BD2SecretVision.Desktop;
 
 public partial class MainWindow : Window
 {
+ public bool HostedAutomationEnabled => running || connecting;
+
     private readonly string root;
     private readonly bool smoke;
     private readonly Connection connection;
     private readonly DispatcherTimer timer;
     private UserPreferences preferences=new();
-    private Catalog language=new(new UserPreferences().Language);
+    private Catalog language=new(new UserPreferences().DisplayLanguage);
     private Progress progress=new();
     private Snapshot? snapshot;
     private GameProcess? game;
@@ -31,7 +33,7 @@ public partial class MainWindow : Window
         this.root=root;this.smoke=smoke;connection=new(root);
         InitializeComponent();stages=[Stage1,Stage2,Stage3,Stage4,Stage5];
         try{preferences=UserPreferences.Load(root);}catch(Exception e){diagnostic=e.ToString();status=e.Message;}
-        language.Select(preferences.Language);LanguageChoice.SelectedIndex=preferences.Language=="zh-CN"?0:1;
+        language.Select(preferences.DisplayLanguage);LanguageChoice.SelectedIndex=preferences.DisplayLanguage=="zh-CN"?0:1;
         foreach(var pair in stages.Select((box,i)=>(box,i)))pair.box.IsChecked=preferences.Settings.Stages.Contains(pair.i+1);
         Target.SelectedIndex=preferences.Settings.TargetPercent==100?0:1;Retry.IsChecked=preferences.Settings.Retry;
         MaxAttempts.Text=preferences.Settings.MaxAttempts.ToString();DataPath.Text=root;
@@ -60,8 +62,8 @@ public partial class MainWindow : Window
     private void LanguageChanged(object sender,SelectionChangedEventArgs e)
     {
         if(initializing)return;
-        preferences.Language=LanguageChoice.SelectedIndex==0?"zh-CN":"en-US";language.Select(preferences.Language);ApplyLanguage();
-        try{preferences.Save(root);}catch(Exception error){ShowError(error);}
+        string selected=AppDomain.CurrentDomain.GetData("BD2Daily.HostedLanguage") as string ?? (LanguageChoice.SelectedIndex==0?"zh-CN":"en-US");language.Select(selected);ApplyLanguage();
+        try{preferences.SelectLanguage(root,selected);}catch(Exception error){ShowError(error);}
     }
     private void SettingsChanged(object sender,RoutedEventArgs e){if(!initializing)ValidateSettings(true);}
     private Settings? ValidateSettings(bool save)

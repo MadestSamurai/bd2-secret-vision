@@ -8,7 +8,7 @@ public sealed class Connection {
  public static bool Fresh(Snapshot? s,GameProcess? g,DateTimeOffset now)=>s!=null&&g!=null&&s.Protocol==1&&s.Pid==g.Pid&&s.ProcessStart==g.Start&&s.AtUtc>now.AddSeconds(-6)&&s.AtUtc<=now.AddSeconds(2);
  public sealed class Record {public int Pid{get;set;}public long Start{get;set;}public string Fingerprint{get;set;}="";public string State{get;set;}="";public long Address{get;set;}public string Error{get;set;}="";}
  public async Task Connect(Action<string> report,CancellationToken token){
- var game=Find()??throw new InvalidOperationException("game-not-running");var recordPath=Path.Combine(Root,"connection.json");var pipe=BD2.LocalIpc.DesktopFiles.Connect(Root,game.Pid,game.Start);
+ var game=Find()??throw new InvalidOperationException("game-not-running");var recordPath=Path.Combine(Root,"connection.json");var pipe=BD2.LocalIpc.DesktopFiles.Connect(Root,game.Pid,game.Start);if(BD2.LocalIpc.HostedConnection.TryOpen(pipe,game.Pid,game.Start))return;
  try{if(pipe.Fingerprint()==HookCompiler.Fingerprint&&Fresh(Read(),game,DateTimeOffset.UtcNow)){pipe.Open(HookCompiler.Fingerprint);return;}}
  catch(BD2.LocalIpc.LeaseRevokedException){}catch(TimeoutException){}catch(IOException){}
  report("adapting");var managed=Path.Combine(Path.GetDirectoryName(game.File)!,"BrownDust II_Data","Managed");PreparedHook hook;

@@ -8,6 +8,7 @@ public sealed class Catalog
     public void Select(string language){messages=Read(language);Language=language;}
     public static Dictionary<string,string> Read(string language)
     {
+        if(language=="zh-TW" && AppDomain.CurrentDomain.GetData("BD2Daily.TraditionalText") is Func<string,string> traditional)return Read("zh-CN").ToDictionary(p=>p.Key,p=>traditional(p.Value));
         using var stream=typeof(Catalog).Assembly.GetManifestResourceStream("Language."+language+".json")??throw new InvalidOperationException("Missing language: "+language);
         return JsonSerializer.Deserialize<Dictionary<string,string>>(stream)!;
     }
